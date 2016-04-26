@@ -17,14 +17,14 @@ pred Init[s, r : Computer, t : Time] {
 }
 
 pred Success[s, r : Computer, t : Time] {
-  no s.buffer.t 
+  no s.buffer.t
   r.buffer.t = Data
 }
 
 
 pred Transition[s, r : Computer, t, t' : Time] {
-  one d: s.buffer.t | 
-    d + r.buffer.t = r.buffer.t' and 
+  one d: s.buffer.t |
+    d + r.buffer.t = r.buffer.t' and
     s.buffer.t' = s.buffer.t - d
 }
 
