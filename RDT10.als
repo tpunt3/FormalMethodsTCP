@@ -17,26 +17,26 @@ pred Init[s, r : Computer, t : Time] {
 }
 
 pred Success[s, r : Computer, t : Time] {
-  no s.buffer.t
+  no s.buffer.t 
   r.buffer.t = Data
 }
 
 
 pred Transition[s, r : Computer, t, t' : Time] {
-  one d: s.buffer.t |
-    d + r.buffer.t = r.buffer.t' and
+  one d: s.buffer.t | 
+    d + r.buffer.t = r.buffer.t' and 
     s.buffer.t' = s.buffer.t - d
 }
 
 fact Trace {
   let s = Sender |
-    let r = Reveiver | 
-      init[Sender, Receiver, first]
+    let r = Receiver | 
+      Init[s, r, first] and
       all t: Time - last | 
         let t' = t.next | 
           Transition[s, r, t,t'] or (
-            success[s, r, t'] and 
-            success[s, r, t]
+            Success[s, r, t'] and 
+            Success[s, r, t]
           )
 }
 
