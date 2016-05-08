@@ -3,7 +3,8 @@ open util/ordering[Time]
 sig Time {}
 
 abstract sig Packet{
-	checksum: Checksum one-> Time
+	checksum: Checksum one-> Time,
+	seqnum: SequenceNumber one -> Time
 }
 one sig DataPacket extends Packet{
 	data: Data one -> Time
@@ -20,7 +21,12 @@ abstract sig Confirmation {
 one sig Ack, Nak extends Confirmation{} 
 
 sig Data {
-	checksum: Checksum
+	checksum: Checksum,
+	seqnum: SequenceNumber
+}
+
+sig SequenceNumber {
+	data: Data
 }
 
 abstract sig Checksum{}
@@ -101,6 +107,7 @@ pred SenderAddToChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	no c.packet.t
 	c.packet.t' = DataPacket
 	c.packet.t'.checksum.t' = s.sent.t'.checksum
+	c.packet.t'.seqnum.t' = s.sent.t'.seqnum
 	let p = DataPacket | (
 	  (not no s.sent.t) =>(
 		p.data.t' = s.sent.t and
@@ -116,6 +123,7 @@ pred SenderAddToChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	)
 }
 
+// have not changed for seq numbers
 pred SenderTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	s.state.t = Waiting
 	s.state.t' = Sending
@@ -138,6 +146,7 @@ pred SenderTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	  )
 }
 
+// have not changed for seq numbers
 pred ReceiverTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	s.state.t = Waiting
 	s.state.t' = Waiting
@@ -163,6 +172,7 @@ pred ReceiverTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 		)
 }
 
+// have not changed for seq numbers
 pred ReceiverAddToChannel[s,r : Computer, c : Channel, t, t' : Time]{
 	s.state.t = Waiting
 	s.state.t' = Waiting
@@ -179,6 +189,7 @@ pred ReceiverAddToChannel[s,r : Computer, c : Channel, t, t' : Time]{
 	c.packet.t.checksum.t = c.packet.t.confirmation.t.checksum
 }
 
+// have not changed for seq numbers
 pred MalformData[s,r : Computer, c : Channel, t, t' : Time]{
 	not no c.packet.t
 	s.state.t' = s.state.t
@@ -189,6 +200,7 @@ pred MalformData[s,r : Computer, c : Channel, t, t' : Time]{
 	r.buffer.t' = r.buffer.t
 	c.packet.t' = c.packet.t
 	c.packet.t'.checksum.t' = c.packet.t.checksum.t
+	c.packet.t'.seqnum.t' = c.packet.t.seqnum.t
 	(c.packet.t in DataPacket) =>
 	(
 		// malforming a Data packet
@@ -217,7 +229,7 @@ fact Trace {
 
 pred ShowTrace {}
 
-run ShowTrace for exactly 3 Data, 5 Checksum, 15 Time
+run ShowTrace for exactly 3 Data, exactly 3 SequenceNumber, 5 Checksum, 15 Time
 
 pred Unsuccessful[] {
   	no Sender.buffer.last 
