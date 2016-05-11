@@ -3,7 +3,7 @@ open util/ordering[Time]
 sig Time {}
 
 abstract sig Packet{
-	checksum: Checksum one-> Time,
+	checksum: Checksum one -> Time,
 	seqnum: SequenceNumber one -> Time
 }
 one sig DataPacket extends Packet{
@@ -21,13 +21,12 @@ abstract sig Confirmation {
 one sig Ack, Nak extends Confirmation{} 
 
 sig Data {
-	checksum: Checksum,
-	seqnum: SequenceNumber
+	checksum: Checksum
 }
 
-sig SequenceNumber {
-	data: Data
-}
+abstract sig SequenceNumber {}
+
+one sig Sequence0, Sequence1 extends SequenceNumber {}
 
 abstract sig Checksum{}
 
@@ -40,7 +39,7 @@ one sig AckChecksum, NakChecksum extends Checksum {
 }
 
 one sig Channel{
-	packet: Packet ->Time
+	packet: Packet -> Time
 }
 
 abstract sig State{}
@@ -48,12 +47,13 @@ abstract sig State{}
 one sig Waiting, Sending extends State{}
 
 abstract sig Computer {
-  buffer: Data->Time,
-  state: State -> Time
+  buffer: Data -> Time,
+  state: State -> Time,
+  currentSeq: SequenceNumber -> Time
 }
 
 one sig Sender extends Computer {
-	sent: Data lone-> Time
+	sent: SequenceNumber -> Data lone -> Time
 }
 one sig Receiver extends Computer{
 	response: ConfirmationPacket lone -> Time
@@ -72,18 +72,20 @@ fact CheckChecksum{
 pred Init[s, r : Computer, c: Channel, t : Time] {
   s.state.t = Sending
   r.state.t = Waiting
-  no s.sent.t
+  no s.sent[SequenceNumber].t
   no r.response.t
   no c.packet.t
   s.buffer.t = Data
   no r.buffer.t
+  s.currentSeq.t = Sequence0
+  r.currentSeq.t = Sequence0
 }
 
 pred Success[s, r : Computer, c : Channel, t : Time] {
   no s.buffer.t 
   r.buffer.t = Data
   no c.packet.t
-  no s.sent.t
+  no s.sent[s.currentSeq.t].t
   no r.response.t
 }
 
@@ -106,24 +108,26 @@ pred SenderAddToChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	no r.response.t'
 	no c.packet.t
 	c.packet.t' = DataPacket
-	c.packet.t'.checksum.t' = s.sent.t'.checksum
-	c.packet.t'.seqnum.t' = s.sent.t'.seqnum
+	c.packet.t'.checksum.t' = s.sent[(s.currentSeq.t')].t'.checksum
+	c.packet.t'.seqnum.t' = (s.currentSeq.t)
+	s.currentSeq.t' = (s.currentSeq.t)
+	r.currentSeq.t' = r.currentSeq.t
+	s.sent[(SequenceNumber - s.currentSeq.t)].t' = s.sent[(SequenceNumber - s.currentSeq.t)].t
 	let p = DataPacket | (
-	  (not no s.sent.t) =>(
-		p.data.t' = s.sent.t and
-		s.sent.t' = s.sent.t and
+	  (not no s.sent[(s.currentSeq.t)].t) =>(
+		p.data.t' = s.sent[(s.currentSeq.t)].t and
+		s.sent[(s.currentSeq.t)].t' = s.sent[(s.currentSeq.t)].t and
 		s.buffer.t' = s.buffer.t
 	  )
 	  else(
-	    one d : s.buffer.t | 
+		one d : s.buffer.t | 
 		  p.data.t' = d and
 		  s.buffer.t' = s.buffer.t - d and
-		  s.sent.t' = d
+		  s.sent[(s.currentSeq.t)].t' = d
 	  )
 	)
 }
 
-// have not changed for seq numbers
 pred SenderTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	s.state.t = Waiting
 	s.state.t' = Sending
@@ -136,17 +140,19 @@ pred SenderTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	no c.packet.t'
 	no r.response.t
 	no r.response.t'
+	r.currentSeq.t' = r.currentSeq.t
 	let p = c.packet.t |
-	  (p.confirmation.t = Nak and p.checksum.t = NakChecksum) => (
-		// resubmit if NakPacket received uncorrupted
-		s.sent.t' = s.sent.t
+	  (p.confirmation.t = Ack and p.checksum.t = AckChecksum and p.seqnum.t = s.currentSeq.t) => (
+		s.currentSeq.t' = (SequenceNumber - s.currentSeq.t) and
+		no s.sent[s.currentSeq.t'].t' and
+		s.sent[s.currentSeq.t].t' = s.sent[s.currentSeq.t].t
 	  ) else (
-		// verify AckPacket or restart if malformed packet
-		no s.sent.t'
+		s.currentSeq.t' = s.currentSeq.t and
+		no s.sent[(SequenceNumber - s.currentSeq.t)].t' and
+		s.sent[s.currentSeq.t'].t' = s.sent[s.currentSeq.t].t
 	  )
 }
 
-// have not changed for seq numbers
 pred ReceiverTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	s.state.t = Waiting
 	s.state.t' = Waiting
@@ -159,37 +165,45 @@ pred ReceiverTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	no c.packet.t'
 	no r.response.t
 	not no r.response.t'
+	s.currentSeq.t' = s.currentSeq.t
 	one p: c.packet.t |
-	  (p.data.t.checksum = p.checksum.t) =>(
+	// not malformed
+	  (p.data.t.checksum = p.checksum.t and p.seqnum.t = r.currentSeq.t) =>(
 		r.buffer.t' = r.buffer.t + p.data.t and
 		r.response.t'.confirmation.t' = Ack and
-		r.response.t'.checksum.t' = AckChecksum
-	  ) 
+		r.response.t'.seqnum.t' = r.currentSeq.t and
+		r.response.t'.checksum.t' = AckChecksum and
+		r.currentSeq.t' = (SequenceNumber - r.currentSeq.t)
+	  )
+		// malformed
 		else (
 			r.buffer.t' = r.buffer.t and
 			r.response.t'.confirmation.t' = Nak and
-			r.response.t'.checksum.t' = NakChecksum
+			r.response.t'.seqnum.t' = r.currentSeq.t and
+			r.response.t'.checksum.t' = NakChecksum and
+			r.currentSeq.t' = r.currentSeq.t
 		)
 }
 
-// have not changed for seq numbers
 pred ReceiverAddToChannel[s,r : Computer, c : Channel, t, t' : Time]{
 	s.state.t = Waiting
 	s.state.t' = Waiting
 	r.state.t = Sending
 	r.state.t' = Waiting
+	r.currentSeq.t' = r.currentSeq.t
+	s.currentSeq.t' = s.currentSeq.t
 	s.buffer.t' = s.buffer.t
 	r.buffer.t' = r.buffer.t
 	s.sent.t' = s.sent.t
 	not no r.response.t
 	no r.response.t'
 	c.packet.t' = r.response.t
+	c.packet.t'.seqnum.t' = r.response.t.seqnum.t
 	c.packet.t'.confirmation.t' = r.response.t.confirmation.t
 	c.packet.t'.checksum.t' = r.response.t.checksum.t
 	c.packet.t.checksum.t = c.packet.t.confirmation.t.checksum
 }
 
-// have not changed for seq numbers
 pred MalformData[s,r : Computer, c : Channel, t, t' : Time]{
 	not no c.packet.t
 	s.state.t' = s.state.t
@@ -201,6 +215,8 @@ pred MalformData[s,r : Computer, c : Channel, t, t' : Time]{
 	c.packet.t' = c.packet.t
 	c.packet.t'.checksum.t' = c.packet.t.checksum.t
 	c.packet.t'.seqnum.t' = c.packet.t.seqnum.t
+	s.currentSeq.t' = s.currentSeq.t
+	r.currentSeq.t' = r.currentSeq.t
 	(c.packet.t in DataPacket) =>
 	(
 		// malforming a Data packet
@@ -229,7 +245,7 @@ fact Trace {
 
 pred ShowTrace {}
 
-run ShowTrace for exactly 3 Data, exactly 3 SequenceNumber, 5 Checksum, 15 Time
+run ShowTrace for exactly 3 Data, 5 Checksum, 10 Time
 
 pred Unsuccessful[] {
   	no Sender.buffer.last 
@@ -243,6 +259,6 @@ pred Successful[] {
 	Success[Sender, Receiver, Channel, last]
 }
 
-run Unsuccessful for exactly 3 Data, 5 Checksum, 15 Time
+run Unsuccessful for exactly 3 Data, 5 Checksum, 100 Time
 
 run Successful for exactly 3 Data, 5 Checksum, 13 Time
