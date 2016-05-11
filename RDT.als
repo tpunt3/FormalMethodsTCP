@@ -18,7 +18,7 @@ abstract sig Confirmation {
 	checksum: Checksum
 }
 
-one sig Ack, Nak extends Confirmation{} 
+one sig Ack extends Confirmation{} 
 
 sig Data {
 	checksum: Checksum
@@ -34,7 +34,7 @@ sig DataChecksum extends Checksum {
 	data: Data
 }
 
-one sig AckChecksum, NakChecksum extends Checksum {
+one sig AckChecksum extends Checksum {
 	confirmation: Confirmation
 }
 
@@ -63,9 +63,7 @@ fact CheckChecksum{
 	all d : Data |
 		d.checksum.data = d
 	Ack.checksum = AckChecksum
-	Nak.checksum = NakChecksum
 	AckChecksum.confirmation = Ack
-	NakChecksum.confirmation = Nak
 }
 
 
@@ -142,7 +140,7 @@ pred SenderTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 	no r.response.t'
 	r.currentSeq.t' = r.currentSeq.t
 	let p = c.packet.t |
-	  (p.confirmation.t = Ack and p.checksum.t = AckChecksum and p.seqnum.t = s.currentSeq.t) => (
+	  (p.checksum.t = AckChecksum and p.seqnum.t = s.currentSeq.t) => (
 		s.currentSeq.t' = (SequenceNumber - s.currentSeq.t) and
 		no s.sent[s.currentSeq.t'].t' and
 		s.sent[s.currentSeq.t].t' = s.sent[s.currentSeq.t].t
@@ -178,9 +176,9 @@ pred ReceiverTakeOutOfChannel[s,r : Computer, c : Channel, t, t' : Time] {
 		// malformed
 		else (
 			r.buffer.t' = r.buffer.t and
-			r.response.t'.confirmation.t' = Nak and
-			r.response.t'.seqnum.t' = r.currentSeq.t and
-			r.response.t'.checksum.t' = NakChecksum and
+			r.response.t'.confirmation.t' = Ack and
+			r.response.t'.seqnum.t' = (SequenceNumber - r.currentSeq.t) and
+			r.response.t'.checksum.t' = AckChecksum and
 			r.currentSeq.t' = r.currentSeq.t
 		)
 }
